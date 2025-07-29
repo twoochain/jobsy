@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "next-auth": "^4.24.11",
+    "uvicorn": "^0.0.1-security"
+  }
+}
