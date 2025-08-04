@@ -14,7 +14,11 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   HomeIcon,
-  UserIcon
+  UserIcon,
+  ClockIcon,
+  CheckCircleIcon as CheckIcon,
+  XMarkIcon,
+  SparklesIcon
 } from '@heroicons/react/24/outline';
 import {
   connectGmail,
@@ -23,7 +27,32 @@ import {
   ApiResponse
 } from '../../utils/api';
 
-const mockActiveApplications = [
+// Type definitions
+interface ActiveApplication {
+  id: number;
+  company: string;
+  position: string;
+  date: string;
+  stage: string;
+  tasks: string[];
+  status: string;
+  stageOrder: number;
+}
+
+interface FinishedApplication {
+  id: number;
+  company: string;
+  position: string;
+  date: string;
+  result: string;
+  reason: string;
+  status: string;
+  stage: string;
+}
+
+type Application = ActiveApplication | FinishedApplication;
+
+const mockActiveApplications: ActiveApplication[] = [
   {
     id: 1,
     company: "Acme Corp",
@@ -31,7 +60,8 @@ const mockActiveApplications = [
     date: "2024-05-01",
     stage: "Mülakat Daveti",
     tasks: ["Teknik test gönderilecek"],
-    status: "active"
+    status: "active",
+    stageOrder: 3
   },
   {
     id: 2,
@@ -40,7 +70,8 @@ const mockActiveApplications = [
     date: "2024-04-20",
     stage: "Başvuruldu",
     tasks: ["CV güncellemesi"],
-    status: "pending"
+    status: "pending",
+    stageOrder: 1
   },
   {
     id: 3,
@@ -49,40 +80,93 @@ const mockActiveApplications = [
     date: "2024-05-03",
     stage: "İlk Görüşme",
     tasks: ["Portfolio hazırla"],
-    status: "active"
+    status: "active",
+    stageOrder: 2
+  },
+  {
+    id: 4,
+    company: "Innovation Labs",
+    position: "Backend Engineer",
+    date: "2024-05-05",
+    stage: "Teknik Test",
+    tasks: ["Algoritma çalışması"],
+    status: "active",
+    stageOrder: 4
+  },
+  {
+    id: 5,
+    company: "Digital Solutions",
+    position: "UI/UX Designer",
+    date: "2024-04-28",
+    stage: "Portfolio İncelemesi",
+    tasks: ["Behance güncellemesi"],
+    status: "pending",
+    stageOrder: 2
+  },
+  {
+    id: 6,
+    company: "Cloud Systems",
+    position: "DevOps Engineer",
+    date: "2024-05-02",
+    stage: "Final Mülakat",
+    tasks: ["Sistem tasarımı hazırla"],
+    status: "active",
+    stageOrder: 5
   }
 ];
 
-const mockFinishedApplications = [
+const mockFinishedApplications: FinishedApplication[] = [
   {
-    id: 4,
+    id: 7,
     company: "Initech",
     position: "Backend Engineer",
     date: "2024-03-15",
     result: "Red",
     reason: "Teknik test başarısız",
-    status: "rejected"
+    status: "rejected",
+    stage: "Red"
   },
   {
-    id: 5,
+    id: 8,
     company: "Umbrella",
     position: "QA Tester",
     date: "2024-02-10",
     result: "Teklif",
     reason: "Başarılı süreç",
-    status: "accepted"
+    status: "accepted",
+    stage: "Teklif"
   }
 ];
+
+// Başvuru aşamaları ve sıralamaları
+const stageOrder: Record<string, number> = {
+  "Başvuruldu": 1,
+  "Portfolio İncelemesi": 2,
+  "İlk Görüşme": 2,
+  "Mülakat Daveti": 3,
+  "Teknik Test": 4,
+  "Final Mülakat": 5,
+  "Teklif": 6,
+  "Red": 7
+};
+
+// Type guard functions
+const isActiveApplication = (app: Application): app is ActiveApplication => {
+  return 'tasks' in app;
+};
 
 export default function Dashboard() {
   const { data: session } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [applications, setApplications] = useState([]);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [activeTab, setActiveTab] = useState('applications'); // Default olarak başvurular sekmesi
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [emailCount, setEmailCount] = useState(0);
   const [scanningEmails, setScanningEmails] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
+  const [assistantLoading, setAssistantLoading] = useState(false);
   
   useEffect(() => {
     if (session?.user?.email) {
@@ -167,7 +251,33 @@ export default function Dashboard() {
     if (stage.includes('Mülakat')) return 'text-blue-600';
     if (stage.includes('Başvuruldu')) return 'text-yellow-600';
     if (stage.includes('Teklif')) return 'text-green-600';
+    if (stage.includes('Test')) return 'text-purple-600';
     return 'text-gray-600';
+  };
+
+  const getStageIcon = (stage: string) => {
+    if (stage.includes('Başvuruldu')) return <ClockIcon className="h-4 w-4" />;
+    if (stage.includes('Mülakat')) return <CheckIcon className="h-4 w-4" />;
+    if (stage.includes('Test')) return <ChartBarIcon className="h-4 w-4" />;
+    if (stage.includes('Teklif')) return <CheckIcon className="h-4 w-4" />;
+    if (stage.includes('Red')) return <XMarkIcon className="h-4 w-4" />;
+    return <BriefcaseIcon className="h-4 w-4" />;
+  };
+
+  const getFilteredApplications = (): Application[] => {
+    let apps: Application[] = [...mockActiveApplications, ...mockFinishedApplications];
+    
+    if (filterStatus === 'active') {
+      apps = mockActiveApplications;
+    } else if (filterStatus === 'finished') {
+      apps = mockFinishedApplications;
+    }
+    
+    return apps.sort((a, b) => {
+      const aOrder = stageOrder[a.stage] || 0;
+      const bOrder = stageOrder[b.stage] || 0;
+      return aOrder - bOrder;
+    });
   };
 
   return (
@@ -229,6 +339,17 @@ export default function Dashboard() {
             >
               <BriefcaseIcon className="mr-3 h-4 w-4" />
               Başvurularım
+            </button>
+            <button
+              onClick={() => setActiveTab('assistant')}
+              className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                activeTab === 'assistant' 
+                  ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                  : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              <SparklesIcon className="mr-3 h-4 w-4" />
+              Başvuru Asistanı
             </button>
             <button
               onClick={() => setActiveTab('calendar')}
@@ -520,106 +641,100 @@ export default function Dashboard() {
 
           {activeTab === 'applications' && (
             <div className="max-w-7xl mx-auto space-y-4">
+              {/* Header */}
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-gray-900">📁 Başvurularım</h2>
                 <div className="flex items-center space-x-3">
                   <FunnelIcon className="h-4 w-4 text-gray-400" />
-                  <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <option>Tüm Başvurular</option>
-                    <option>Aktif</option>
-                    <option>Bekleyen</option>
-                    <option>Sonuçlanan</option>
+                  <select 
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="all">Tüm Başvurular</option>
+                    <option value="active">Aktif</option>
+                    <option value="finished">Sonuçlanan</option>
                   </select>
                 </div>
               </div>
 
-              {/* Active Applications */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-bold text-gray-900">🔄 Aktif Başvurular</h3>
-                </div>
-                <div className="divide-y divide-gray-200">
-                  {mockActiveApplications.map((app) => (
-                    <div key={app.id} className="px-6 py-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-3">
-                            <div className="flex-shrink-0">
-                              <div className="h-12 w-12 bg-blue-500 rounded-lg flex items-center justify-center">
-                                <BriefcaseIcon className="h-6 w-6 text-white" />
-                              </div>
-                            </div>
-                            <div className="flex-1">
-                              <h4 className="text-base font-bold text-gray-900">{app.company}</h4>
-                              <p className="text-sm text-gray-600">{app.position}</p>
-                              <p className="text-sm text-gray-500">Başvuru: {app.date}</p>
-                            </div>
-                          </div>
-                          <div className="mt-3">
-                            <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${getStatusColor(app.status)}`}>
-                              {app.stage}
-                            </span>
-                          </div>
-                          {app.tasks.length > 0 && (
-                            <div className="mt-3">
-                              <p className="text-sm font-medium text-gray-700 mb-2">📝 Yapılacaklar:</p>
-                              <ul className="text-sm text-gray-600 space-y-1">
-                                {app.tasks.map((task, index) => (
-                                  <li key={index} className="flex items-center space-x-2">
-                                    <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
-                                    <span>{task}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-2 ml-4">
-                          <button className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors">
-                            ✏️ Düzenle
-                          </button>
-                          <button className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors">
-                            🗑️ Sil
-                          </button>
-                        </div>
+              {/* Applications Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {getFilteredApplications().map((app) => (
+                  <div key={app.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+                    {/* Company Logo/Icon */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
+                        <BriefcaseIcon className="h-6 w-6 text-white" />
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {getStageIcon(app.stage)}
+                        <span className={`text-xs font-medium px-2 py-1 rounded-full border ${getStatusColor(app.status)}`}>
+                          {app.stage}
+                        </span>
                       </div>
                     </div>
-                  ))}
-                </div>
+
+                    {/* Company Name - Bold */}
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">{app.company}</h3>
+                    
+                    {/* Position */}
+                    <p className="text-gray-600 mb-3">{app.position}</p>
+
+                    {/* Date */}
+                    <p className="text-sm text-gray-500 mb-4">Başvuru: {app.date}</p>
+
+
+
+                    {/* Tasks if available */}
+                    {isActiveApplication(app) && app.tasks.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-sm font-medium text-gray-700 mb-2">📝 Yapılacaklar:</p>
+                        <ul className="space-y-1">
+                          {app.tasks.slice(0, 2).map((task: string, index: number) => (
+                            <li key={index} className="text-xs text-gray-600 flex items-center space-x-2">
+                              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+                              <span className="truncate">{task}</span>
+                            </li>
+                          ))}
+                          {app.tasks.length > 2 && (
+                            <li className="text-xs text-gray-500">+{app.tasks.length - 2} daha...</li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center space-x-2">
+                      <button className="flex-1 px-3 py-2 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors">
+                        ✏️ Düzenle
+                      </button>
+                      <button className="flex-1 px-3 py-2 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors">
+                        🗑️ Sil
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              {/* Finished Applications */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-bold text-gray-900">✅ Sonuçlanmış Başvurular</h3>
+              {/* Empty State */}
+              {getFilteredApplications().length === 0 && (
+                <div className="text-center py-12">
+                  <BriefcaseIcon className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">Başvuru bulunamadı</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {filterStatus === 'all' ? 'Henüz başvuru yapmadınız.' : 
+                     filterStatus === 'active' ? 'Aktif başvurunuz bulunmuyor.' : 
+                     'Sonuçlanmış başvurunuz bulunmuyor.'}
+                  </p>
+                  <div className="mt-6">
+                    <button className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+                      <PlusIcon className="h-4 w-4 mr-2" />
+                      Yeni Başvuru Ekle
+                    </button>
+                  </div>
                 </div>
-                <div className="divide-y divide-gray-200">
-                  {mockFinishedApplications.map((app) => (
-                    <div key={app.id} className="px-6 py-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div className="flex-shrink-0">
-                            <div className="h-12 w-12 bg-gray-400 rounded-lg flex items-center justify-center">
-                              <BriefcaseIcon className="h-6 w-6 text-white" />
-                            </div>
-                          </div>
-                          <div>
-                            <h4 className="text-base font-bold text-gray-900">{app.company}</h4>
-                            <p className="text-sm text-gray-600">{app.position}</p>
-                            <p className="text-sm text-gray-500">Sonuç: {app.date}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${getStatusColor(app.status)}`}>
-                            {app.result}
-                          </span>
-                          <p className="text-sm text-gray-500 mt-1">{app.reason}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -638,6 +753,234 @@ export default function Dashboard() {
                 <h2 className="text-2xl font-bold text-gray-900 mb-4">🔔 Bildirimler</h2>
                 <p className="text-gray-600">Bildirim özelliği yakında eklenecek...</p>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'assistant' && (
+            <div className="max-w-7xl mx-auto space-y-4">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-gray-900">🤖 Başvuru Asistanı</h2>
+                <div className="flex items-center space-x-2">
+                  <SparklesIcon className="h-5 w-5 text-purple-500" />
+                  <span className="text-sm text-gray-600">AI Destekli Analiz</span>
+                </div>
+              </div>
+
+              {!selectedApplication ? (
+                /* Başvuru Seçimi */
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  <div className="text-center">
+                    <SparklesIcon className="mx-auto h-12 w-12 text-purple-400 mb-4" />
+                    <h3 className="text-lg font-bold text-gray-900 mb-2">Başvuru Seçin</h3>
+                    <p className="text-gray-600 mb-6">
+                      Analiz etmek istediğiniz başvuruyu seçin. AI asistanı şirket özeti, 
+                      ilan gereksinimleri ve size özel tavsiyeler sunacak.
+                    </p>
+                    
+                    {/* Başvuru Listesi */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {mockActiveApplications.map((app) => (
+                        <div 
+                          key={app.id}
+                          onClick={() => setSelectedApplication(app)}
+                          className="bg-gray-50 rounded-lg p-4 cursor-pointer hover:bg-gray-100 transition-colors border border-gray-200"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
+                              <BriefcaseIcon className="h-5 w-5 text-white" />
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-semibold text-gray-900">{app.company}</h4>
+                              <p className="text-sm text-gray-600">{app.position}</p>
+                              <p className="text-xs text-gray-500">{app.stage}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Başvuru Analizi */
+                <div className="space-y-4">
+                  {/* Seçilen Başvuru Özeti */}
+                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                          <BriefcaseIcon className="h-6 w-6 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold text-gray-900">{selectedApplication.company}</h3>
+                          <p className="text-gray-600">{selectedApplication.position}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setSelectedApplication(null)}
+                        className="text-sm text-gray-500 hover:text-gray-700"
+                      >
+                        Başka Başvuru Seç
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* AI Analiz Sonuçları */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Şirket Özeti */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                      <div className="flex items-center space-x-2 mb-4">
+                        <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                          <BriefcaseIcon className="h-4 w-4 text-white" />
+                        </div>
+                        <h4 className="text-lg font-bold text-gray-900">🏢 Şirket Özeti</h4>
+                      </div>
+                      
+                      {assistantLoading ? (
+                        <div className="space-y-3">
+                          <div className="animate-pulse">
+                            <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                            <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
+                            <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <p className="text-sm text-gray-700">
+                            <strong>{selectedApplication.company}</strong> teknoloji sektöründe faaliyet gösteren, 
+                            yenilikçi çözümler üreten bir şirkettir. Şirket, modern teknolojiler kullanarak 
+                            müşterilerine değer katmayı hedeflemektedir.
+                          </p>
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <p className="text-xs text-blue-800">
+                              <strong>💡 Önemli:</strong> Şirket, remote çalışma kültürüne sahip ve 
+                              sürekli öğrenmeye değer veren bir yapıya sahiptir.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* İlan Gereksinimleri */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                      <div className="flex items-center space-x-2 mb-4">
+                        <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+                          <ChartBarIcon className="h-4 w-4 text-white" />
+                        </div>
+                        <h4 className="text-lg font-bold text-gray-900">📋 İlan Gereksinimleri</h4>
+                      </div>
+                      
+                      {assistantLoading ? (
+                        <div className="space-y-3">
+                          <div className="animate-pulse">
+                            <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+                            <div className="h-4 bg-gray-200 rounded w-4/5 mb-2"></div>
+                            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                              <span className="text-sm text-gray-700">3+ yıl deneyim</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                              <span className="text-sm text-gray-700">React/TypeScript</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                              <span className="text-sm text-gray-700">Node.js/Express</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+                              <span className="text-sm text-gray-700">AWS deneyimi (tercih)</span>
+                            </div>
+                          </div>
+                          <div className="bg-green-50 rounded-lg p-3">
+                            <p className="text-xs text-green-800">
+                              <strong>✅ Uyumluluk:</strong> Gereksinimlerin %85'i ile uyumlusunuz.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* AI Tavsiyeleri */}
+                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200 p-6">
+                    <div className="flex items-center space-x-2 mb-4">
+                      <SparklesIcon className="h-6 w-6 text-purple-600" />
+                      <h4 className="text-lg font-bold text-gray-900">🤖 AI Tavsiyeleri</h4>
+                    </div>
+                    
+                    {assistantLoading ? (
+                      <div className="space-y-4">
+                        <div className="animate-pulse">
+                          <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+                          <div className="h-4 bg-gray-200 rounded w-4/5 mb-2"></div>
+                          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="bg-white rounded-lg p-4 shadow-sm">
+                          <div className="flex items-start space-x-3">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 mb-1">📝 CV Güncellemesi</p>
+                              <p className="text-sm text-gray-700">
+                                React projelerinizi daha detaylı gösterin. Özellikle state management 
+                                deneyiminizi vurgulayın.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-white rounded-lg p-4 shadow-sm">
+                          <div className="flex items-start space-x-3">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 mb-1">💼 Mülakat Hazırlığı</p>
+                              <p className="text-sm text-gray-700">
+                                Sistem tasarımı ve algoritma sorularına odaklanın. 
+                                Şirketin kullandığı teknolojiler hakkında araştırma yapın.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-white rounded-lg p-4 shadow-sm">
+                          <div className="flex items-start space-x-3">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full mt-2"></div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 mb-1">🎯 Başarı Stratejisi</p>
+                              <p className="text-sm text-gray-700">
+                                Remote çalışma deneyiminizi öne çıkarın. 
+                                Sürekli öğrenme yaklaşımınızı vurgulayın.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Aksiyon Butonları */}
+                  <div className="flex items-center justify-center space-x-4">
+                    <button className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                      📝 CV Güncelle
+                    </button>
+                    <button className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                      💼 Mülakat Hazırla
+                    </button>
+                    <button className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                      📊 Detaylı Analiz
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
