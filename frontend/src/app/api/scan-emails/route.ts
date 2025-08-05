@@ -12,6 +12,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log('E-posta tarama başlatılıyor...', userId);
+
     // Backend'e e-posta tarama isteği gönder
     const scanResponse = await fetch('http://localhost:8000/scan-emails', {
       method: 'POST',
@@ -26,9 +28,12 @@ export async function POST(request: NextRequest) {
     }
 
     const scanData = await scanResponse.json();
+    console.log('E-posta tarama sonucu:', scanData);
     
     // E-postaları AI ile analiz et
     if (scanData.emails && scanData.emails.length > 0) {
+      console.log('Analiz edilecek e-posta sayısı:', scanData.emails.length);
+      
       const analyzeResponse = await fetch('http://localhost:8000/analyze-emails', {
         method: 'POST',
         headers: {
@@ -39,10 +44,14 @@ export async function POST(request: NextRequest) {
 
       if (analyzeResponse.ok) {
         const analyzeData = await analyzeResponse.json();
+        console.log('AI analiz sonucu:', analyzeData);
         
         // Analiz edilen başvuruları kaydet
         if (analyzeData.applications && analyzeData.applications.length > 0) {
-          await fetch('http://localhost:8000/save-applications', {
+          console.log('Kaydedilecek başvuru sayısı:', analyzeData.applications.length);
+          console.log('Kaydedilecek başvurular:', analyzeData.applications);
+          
+          const saveResponse = await fetch('http://localhost:8000/save-applications', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -52,22 +61,63 @@ export async function POST(request: NextRequest) {
               userId: userId 
             }),
           });
+          
+          if (saveResponse.ok) {
+            const saveData = await saveResponse.json();
+            console.log('Kaydetme sonucu:', saveData);
+            
+            return NextResponse.json({
+              success: true,
+              emailCount: scanData.emailCount,
+              applications: analyzeData.applications,
+              savedCount: saveData.saved_count,
+              totalApplications: saveData.total_applications,
+              message: `${scanData.emailCount} e-posta tarandı, ${analyzeData.totalFound} başvuru bulundu, ${saveData.saved_count} yeni başvuru kaydedildi`
+            });
+          } else {
+            console.error('Kaydetme hatası:', saveResponse.status);
+            return NextResponse.json({
+              success: false,
+              error: 'Başvurular kaydedilemedi',
+              emailCount: scanData.emailCount,
+              applications: analyzeData.applications
+            });
+          }
+        } else {
+          console.log('Analiz edilen başvuru bulunamadı');
+          return NextResponse.json({
+            success: true,
+            emailCount: scanData.emailCount,
+            applications: [],
+            message: `${scanData.emailCount} e-posta tarandı, başvuru bulunamadı`
+          });
         }
-
+      } else {
+        console.error('AI analiz hatası:', analyzeResponse.status);
         return NextResponse.json({
-          emailCount: scanData.emailCount,
-          applications: analyzeData.applications,
-          message: `${scanData.emailCount} e-posta tarandı, ${analyzeData.totalFound} başvuru bulundu`
+          success: false,
+          error: 'E-posta analizi başarısız',
+          emailCount: scanData.emailCount
         });
       }
+    } else {
+      console.log('Taranacak e-posta bulunamadı');
+      return NextResponse.json({
+        success: true,
+        emailCount: 0,
+        applications: [],
+        message: 'Taranacak e-posta bulunamadı'
+      });
     }
-
-    return NextResponse.json(scanData);
 
   } catch (error) {
     console.error('E-posta tarama hatası:', error);
     return NextResponse.json(
-      { error: 'E-postalar taranamadı' },
+      { 
+        success: false,
+        error: 'E-postalar taranamadı',
+        details: error instanceof Error ? error.message : 'Bilinmeyen hata'
+      },
       { status: 500 }
     );
   }

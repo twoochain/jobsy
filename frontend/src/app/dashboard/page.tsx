@@ -18,12 +18,15 @@ import {
   ClockIcon,
   CheckCircleIcon as CheckIcon,
   XMarkIcon,
-  SparklesIcon
+  SparklesIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 import {
   connectGmail,
   disconnectGmail,
   scanEmails,
+  checkGmailStatus,
+  getApplications,
   ApiResponse
 } from '../../utils/api';
 
@@ -37,6 +40,17 @@ interface ActiveApplication {
   tasks: string[];
   status: string;
   stageOrder: number;
+  application_type?: string;
+  contact_person?: string;
+  location?: string;
+  salary_info?: string;
+  requirements?: string;
+  deadline?: string;
+  email_id?: string;
+  email_subject?: string;
+  email_sender?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 interface FinishedApplication {
@@ -48,6 +62,17 @@ interface FinishedApplication {
   reason: string;
   status: string;
   stage: string;
+  application_type?: string;
+  contact_person?: string;
+  location?: string;
+  salary_info?: string;
+  requirements?: string;
+  deadline?: string;
+  email_id?: string;
+  email_subject?: string;
+  email_sender?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 type Application = ActiveApplication | FinishedApplication;
@@ -175,20 +200,73 @@ export default function Dashboard() {
     }
   }, [session]);
 
+  // URL parametrelerini kontrol et (Gmail callback sonrası)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const success = urlParams.get('success');
+    const error = urlParams.get('error');
+
+    if (success === 'gmail_connected') {
+      setIsGmailConnected(true);
+      // URL'den parametreleri temizle
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (error) {
+      console.error('Gmail bağlantı hatası:', error);
+      setIsGmailConnected(false);
+      // URL'den parametreleri temizle
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  // Applications state değişikliklerini izle
+  useEffect(() => {
+    console.log('Applications state değişti:', applications);
+    console.log('Applications state length:', applications.length);
+  }, [applications]);
+
   const loadApplications = async () => {
+    if (!session?.user?.email) return;
+    
     try {
-      const response = await fetch(`/api/applications/${session?.user?.email}`);
-      if (response.ok) {
-        const data = await response.json();
-        setApplications(data.applications || []);
+      console.log('Başvurular yükleniyor...', session.user.email);
+      const result: ApiResponse = await getApplications(session.user.email);
+      console.log('Başvuru yükleme sonucu:', result);
+      
+      if (result.success && result.data) {
+        const activeApps = result.data?.active_applications || [];
+        const finishedApps = result.data?.finished_applications || [];
+        console.log('Aktif başvurular:', activeApps);
+        console.log('Tamamlanmış başvurular:', finishedApps);
+        console.log('Toplam başvuru sayısı:', activeApps.length + finishedApps.length);
+        
+        const allApps = [...activeApps, ...finishedApps];
+        console.log('State\'e yüklenecek başvurular:', allApps);
+        setApplications(allApps);
+        console.log('Başvurular state\'e yüklendi, yeni state:', allApps);
+      } else {
+        console.error('Başvuru yükleme başarısız:', result.error);
+        // Hata durumunda boş array set et
+        setApplications([]);
       }
     } catch (error) {
       console.error('Başvurular yüklenemedi:', error);
+      // Hata durumunda boş array set et
+      setApplications([]);
     }
   };
 
   const checkGmailConnection = async () => {
-    setIsGmailConnected(false);
+    if (!session?.user?.email) return;
+    
+    try {
+      const result: ApiResponse = await checkGmailStatus(session.user.email);
+      if (result.success) {
+        setIsGmailConnected(result.data?.connected || false);
+      }
+    } catch (error) {
+      console.error('Gmail durum kontrolü hatası:', error);
+      setIsGmailConnected(false);
+    }
   };
 
   const handleConnectGmail = async () => {
@@ -225,13 +303,31 @@ export default function Dashboard() {
     
     setScanningEmails(true);
     try {
+      console.log('E-posta tarama başlatılıyor...', session.user.email);
       const result: ApiResponse = await scanEmails(session.user.email);
+      console.log('E-posta tarama sonucu:', result);
+      
       if (result.success) {
         setEmailCount(result.data?.emailCount || 0);
-        loadApplications();
+        console.log('E-posta sayısı güncellendi:', result.data?.emailCount);
+        
+        // Yeni başvuru kaydedildiyse başvuruları yenile
+        if (result.data?.savedCount && result.data.savedCount > 0) {
+          console.log('Yeni başvuru kaydedildi, başvurular yenileniyor...');
+          await loadApplications();
+        } else {
+          console.log('Yeni başvuru kaydedilmedi, başvurular yenilenmiyor');
+        }
+        
+        // Kullanıcıya bilgi ver
+        alert(result.data?.message || 'E-posta tarama tamamlandı');
+      } else {
+        console.error('E-posta tarama başarısız:', result.error);
+        alert('E-posta tarama başarısız: ' + (result.error || 'Bilinmeyen hata'));
       }
     } catch (error) {
       console.error('E-posta tarama hatası:', error);
+      alert('E-posta tarama hatası: ' + (error instanceof Error ? error.message : 'Bilinmeyen hata'));
     } finally {
       setScanningEmails(false);
     }
@@ -265,14 +361,21 @@ export default function Dashboard() {
   };
 
   const getFilteredApplications = (): Application[] => {
-    let apps: Application[] = [...mockActiveApplications, ...mockFinishedApplications];
+    console.log('getFilteredApplications çağrıldı, applications:', applications);
+    console.log('applications length:', applications.length);
+    console.log('applications type:', typeof applications);
+    console.log('applications is array:', Array.isArray(applications));
+    
+    let apps: Application[] = [...applications];
     
     if (filterStatus === 'active') {
-      apps = mockActiveApplications;
+      apps = applications.filter(app => app.status === 'active' || app.status === 'pending');
     } else if (filterStatus === 'finished') {
-      apps = mockFinishedApplications;
+      apps = applications.filter(app => app.status === 'finished' || app.status === 'rejected' || app.status === 'accepted');
     }
     
+    console.log('Filtrelenmiş başvurular:', apps);
+    console.log('Filtrelenmiş başvuru sayısı:', apps.length);
     return apps.sort((a, b) => {
       const aOrder = stageOrder[a.stage] || 0;
       const bOrder = stageOrder[b.stage] || 0;
@@ -431,8 +534,8 @@ export default function Dashboard() {
                       Hoş geldin, {session?.user?.name || 'Kullanıcı'}! 👋
                     </h2>
                     <p className="text-gray-600">
-                      Bu hafta <span className="font-semibold text-blue-600">{mockActiveApplications.length}</span> aktif başvurun var. 
-                      <span className="font-semibold text-green-600"> {mockActiveApplications.filter(app => app.stage.includes('Mülakat')).length}</span> tanesi mülakat aşamasında.
+                              Bu hafta <span className="font-semibold text-blue-600">{applications.filter(app => app.status === 'active' || app.status === 'pending').length}</span> aktif başvurun var.
+        <span className="font-semibold text-green-600"> {applications.filter(app => (app.status === 'active' || app.status === 'pending') && app.stage.includes('Mülakat')).length}</span> tanesi mülakat aşamasında.
                     </p>
                   </div>
                   <div className="hidden md:block">
@@ -516,6 +619,14 @@ export default function Dashboard() {
                         )}
                       </button>
                       
+                      <button
+                        onClick={loadApplications}
+                        className="flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <ArrowPathIcon className="h-4 w-4 mr-2" />
+                        Başvuruları Yenile
+                      </button>
+                      
                       {emailCount > 0 && (
                         <div className="flex items-center space-x-2">
                           <span className="text-sm text-gray-600">Tespit edilen başvuru:</span>
@@ -538,7 +649,7 @@ export default function Dashboard() {
                     </div>
                     <div className="ml-3">
                       <p className="text-sm font-medium text-gray-600">Aktif Başvuru</p>
-                      <p className="text-xl font-bold text-gray-900">{mockActiveApplications.length}</p>
+                      <p className="text-xl font-bold text-gray-900">{applications.filter(app => app.status === 'active' || app.status === 'pending').length}</p>
                     </div>
                   </div>
                 </div>
@@ -586,7 +697,7 @@ export default function Dashboard() {
                   <h3 className="text-lg font-bold text-gray-900">📋 Son Başvurular</h3>
                 </div>
                 <div className="divide-y divide-gray-200">
-                  {mockActiveApplications.map((app) => (
+                  {applications.filter(app => app.status === 'active' || app.status === 'pending').slice(0, 3).map((app) => (
                     <div key={app.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
@@ -680,6 +791,19 @@ export default function Dashboard() {
                     
                     {/* Position */}
                     <p className="text-gray-600 mb-3">{app.position}</p>
+
+                    {/* Application Type Badge */}
+                    {(app as any).application_type && (
+                      <div className="mb-3">
+                        <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                          (app as any).application_type === 'internship' 
+                            ? 'bg-purple-100 text-purple-800 border border-purple-200' 
+                            : 'bg-blue-100 text-blue-800 border border-blue-200'
+                        }`}>
+                          {(app as any).application_type === 'internship' ? '🎓 Staj' : '💼 İş'}
+                        </span>
+                      </div>
+                    )}
 
                     {/* Date */}
                     <p className="text-sm text-gray-500 mb-4">Başvuru: {app.date}</p>
@@ -780,7 +904,7 @@ export default function Dashboard() {
                     
                     {/* Başvuru Listesi */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {mockActiveApplications.map((app) => (
+                      {applications.filter(app => app.status === 'active' || app.status === 'pending').map((app) => (
                         <div 
                           key={app.id}
                           onClick={() => setSelectedApplication(app)}

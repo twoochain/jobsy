@@ -5,6 +5,7 @@ import requests
 from dotenv import load_dotenv
 from features.gmail_integration import router as gmail_router
 from features.email_analyzer import router as analyzer_router
+from features.application_manager import router as application_router
 
 load_dotenv()
 
@@ -146,6 +147,7 @@ def ai_prompt_get():
 # Feature router'ları dahil et
 app.include_router(gmail_router)
 app.include_router(analyzer_router)
+app.include_router(application_router)
 
 if __name__ == "__main__":
     import uvicorn

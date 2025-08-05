@@ -15,9 +15,9 @@ gmail_tokens: Dict[str, Dict] = {}
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GMAIL_REDIRECT_URI = os.getenv("GMAIL_REDIRECT_URI")
+GMAIL_REDIRECT_URI = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:3000/api/google/gmail/callback")
 
-if not all([GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI]):
+if not all([GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET]):
     raise Exception("Gmail OAuth config missing in environment variables")
 
 @router.post("/connect-gmail")
@@ -79,6 +79,11 @@ async def disconnect_gmail(user_data: Dict = Body(...)):
     if user_id in gmail_tokens:
         del gmail_tokens[user_id]
     return {"message": "Gmail bağlantısı kesildi"}
+
+@router.get("/gmail/status/{user_id}")
+async def check_gmail_status(user_id: str):
+    is_connected = user_id in gmail_tokens
+    return {"connected": is_connected, "userId": user_id}
 
 async def refresh_gmail_token(user_id: str):
     token_info = gmail_tokens.get(user_id)
@@ -161,15 +166,18 @@ async def scan_emails(user_data: Dict = Body(...)):
         "Content-Type": "application/json"
     }
 
+    # İş başvurusu ile ilgili e-postaları bul - orta seviye filtre
     query = (
-        "subject:(application OR apply OR job OR position OR vacancy OR hiring OR recruitment) "
-        "OR body:(application OR apply OR job OR position OR vacancy OR hiring OR recruitment)"
+        "subject:(interview OR mülakat OR application OR başvuru OR offer OR teklif OR test OR assessment OR değerlendirme OR job OR iş OR position OR pozisyon OR role OR rol OR hiring OR işe alım OR recruitment OR candidate OR aday) "
+        "OR body:(interview OR mülakat OR application OR başvuru OR offer OR teklif OR test OR assessment OR değerlendirme OR job OR iş OR position OR pozisyon OR role OR rol OR hiring OR işe alım OR recruitment OR candidate OR aday)"
     )
+    
+    print(f"İş başvurusu e-postaları aranıyor...")
 
     search_url = f"{GMAIL_API_BASE}/messages"
     params = {
         "q": query,
-        "maxResults": 50
+        "maxResults": 100  # Daha fazla e-posta çekelim
     }
 
     async with httpx.AsyncClient() as client:
@@ -178,12 +186,17 @@ async def scan_emails(user_data: Dict = Body(...)):
         messages_data = resp.json()
 
     messages = messages_data.get("messages", [])
+    print(f"Gmail'de bulunan mesaj sayısı: {len(messages) if messages else 0}")
+    
     job_emails = []
-    for message in messages[:10]:
+    for i, message in enumerate(messages[:20]):  # İlk 20 e-postayı işle
         email_detail = await get_email_detail(message["id"], headers)
         if email_detail:
+            print(f"E-posta işlendi: {email_detail['subject']}")
             job_emails.append(email_detail)
 
+    print(f"Toplam işlenen e-posta sayısı: {len(job_emails)}")
+    
     return {
         "emailCount": len(job_emails),
         "emails": job_emails,

@@ -159,12 +159,33 @@ export async function disconnectGmail(userId: string): Promise<ApiResponse> {
   });
 }
 
+// Check Gmail Status
+export async function checkGmailStatus(userId: string): Promise<ApiResponse> {
+  return fetchApi(`/gmail/status/${userId}`, {
+    method: 'GET',
+  });
+}
+
 // Scan Emails
 export async function scanEmails(userId: string): Promise<ApiResponse> {
   return fetchApi('/scan-emails', {
     method: 'POST',
     body: JSON.stringify({ userId }),
   });
+}
+
+// Get Applications
+export async function getApplications(userId: string): Promise<ApiResponse> {
+  const result = await callBackend(`/applications/${userId}`, {
+    method: 'GET',
+  });
+  
+  return {
+    success: result.success || false,
+    data: result.data,
+    error: result.error,
+    message: result.message
+  };
 }
 
 // ===== CONFIGURATION FUNCTIONS =====

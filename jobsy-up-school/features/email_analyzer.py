@@ -24,11 +24,15 @@ async def analyze_emails(emails_data: Dict = Body(...)):
         
         analyzed_applications = []
         
-        for email in emails:
+        for i, email in enumerate(emails):
+            print(f"\nE-posta {i+1} analiz ediliyor: {email.get('subject', '')}")
             # E-posta içeriğini AI'ya gönder
             analysis_result = await analyze_single_email(email, gemini_api_key)
             if analysis_result:
                 analyzed_applications.append(analysis_result)
+                print(f"  ✓ Başvuru olarak kabul edildi")
+            else:
+                print(f"  ✗ Başvuru olarak kabul edilmedi")
         
         return {
             "applications": analyzed_applications,
@@ -42,28 +46,52 @@ async def analyze_emails(emails_data: Dict = Body(...)):
 async def analyze_single_email(email: Dict, api_key: str) -> Optional[Dict]:
     """Tek bir e-postayı AI ile analiz et"""
     try:
-        # AI prompt'u hazırla
+        # AI prompt'u hazırla - Daha esnek kriterler
         prompt = f"""
-        Bu e-posta bir iş başvurusu ile ilgili mi? Eğer evet ise, aşağıdaki bilgileri JSON formatında çıkar:
+        Analyze this email to determine if it's related to a job or internship application process. 
+        The email can be in English, Turkish, or any other language. Be flexible in your analysis.
 
-        E-posta Konusu: {email.get('subject', '')}
-        Gönderen: {email.get('sender', '')}
-        Tarih: {email.get('date', '')}
-        İçerik: {email.get('body', '')}
+        Email Subject: {email.get('subject', '')}
+        Sender: {email.get('sender', '')}
+        Date: {email.get('date', '')}
+        Content: {email.get('body', '')}
 
-        Çıkarılacak bilgiler:
-        - is_job_application: true/false (bu e-posta iş başvurusu mu?)
-        - company_name: Şirket adı
-        - position: Pozisyon adı
-        - application_status: Başvuru durumu (başvuruldu, mülakat, red, kabul, vb.)
-        - next_action: Sonraki adım (CV gönder, mülakat hazırlığı, vb.)
-        - deadline: Varsa son tarih
-        - contact_person: İletişim kişisi
-        - salary_info: Maaş bilgisi (varsa)
-        - location: Lokasyon (varsa)
-        - requirements: Gereksinimler (varsa)
+        ACCEPT these situations (be generous):
+        - Any mention of job application, interview, technical test, assessment
+        - Application status updates, confirmations, rejections
+        - Interview invitations, scheduling, reminders
+        - Technical tests, coding challenges, assignments
+        - Job offers, acceptances, rejections
+        - Any email from companies about hiring process
+        - Event invitations related to job applications
+        - Documents or guides for application process
 
-        Sadece JSON formatında yanıt ver, başka açıklama ekleme.
+        REJECT only these:
+        - Pure marketing emails
+        - Product advertisements
+        - Newsletter subscriptions
+        - Unrelated spam
+
+        If this email could be related to job application process, extract information in JSON:
+
+        {{
+            "is_job_application": true/false,
+            "application_type": "job" or "internship",
+            "company_name": "Company name",
+            "position": "Position title",
+            "application_status": "Application status",
+            "next_action": "Next step",
+            "deadline": "Deadline if any",
+            "contact_person": "Contact person",
+            "salary_info": "Salary information if any",
+            "location": "Location if any",
+            "requirements": "Requirements if any"
+        }}
+
+        If this email is clearly not related to job applications, return:
+        {{"is_job_application": false}}
+
+        Respond only in JSON format.
         """
 
         # Gemini API'ye gönder
@@ -95,20 +123,34 @@ async def analyze_single_email(email: Dict, api_key: str) -> Optional[Dict]:
                 # JSON'ı parse et
                 analysis = json.loads(ai_response)
                 
-                # E-posta bilgilerini ekle
-                analysis["email_id"] = email.get("id")
-                analysis["email_subject"] = email.get("subject")
-                analysis["email_sender"] = email.get("sender")
-                analysis["email_date"] = email.get("date")
-                analysis["analyzed_at"] = datetime.now().isoformat()
-                
-                return analysis
+                # AI analizi başarılıysa kullan
+                if analysis.get("is_job_application", False):
+                    # E-posta bilgilerini ekle
+                    analysis["email_id"] = email.get("id")
+                    analysis["email_subject"] = email.get("subject")
+                    analysis["email_sender"] = email.get("sender")
+                    analysis["email_date"] = email.get("date")
+                    analysis["analyzed_at"] = datetime.now().isoformat()
+                    analysis["analysis_method"] = "AI"
+                    
+                    print(f"AI analizi başarılı: {email.get('subject', '')}")
+                    return analysis
+                else:
+                    print(f"AI analizi reddetti: {email.get('subject', '')}")
             
             except json.JSONDecodeError:
-                # AI JSON döndürmediyse manuel analiz yap
-                return manual_analysis(email)
+                print(f"AI JSON parse hatası: {email.get('subject', '')}")
         
-        return manual_analysis(email)
+        # AI başarısız olursa veya reddederse manuel analiz yap
+        print(f"Manuel analiz deneniyor: {email.get('subject', '')}")
+        manual_result = manual_analysis(email)
+        if manual_result:
+            manual_result["analysis_method"] = "Manual"
+            print(f"Manuel analiz başarılı: {email.get('subject', '')}")
+        else:
+            print(f"Manuel analiz de reddetti: {email.get('subject', '')}")
+        
+        return manual_result
     
     except Exception as e:
         print(f"E-posta analiz hatası: {str(e)}")
@@ -120,13 +162,56 @@ def manual_analysis(email: Dict) -> Dict:
     body = email.get("body", "").lower()
     sender = email.get("sender", "")
     
-    # Basit keyword analizi
-    is_job_app = any(keyword in subject or keyword in body for keyword in [
-        "application", "apply", "job", "position", "vacancy", "hiring", "recruitment"
-    ])
+    # Basit keyword analizi - temel başvuru süreçleri
+    positive_keywords = [
+    # Başvuru süreci ve sonuçlar
+    "application", "başvuru", "applied", "başvurdunuz",
+    "interview", "mülakat", "technical interview", "teknik mülakat",
+    "interview invitation", "mülakat daveti", "interview scheduled", "mülakat planlandı",
+    "technical test", "teknik test", "coding challenge", "kodlama testi",
+    "assessment", "değerlendirme", "assignment", "görev",
+    "offer", "iş teklifi", "staj teklifi", "kabul", "accepted",
+    "rejected", "declined", "not selected", "red", "olumsuz", "elendi",
     
-    if not is_job_app:
+    # Pozisyon / Rol
+    "job", "iş", "internship", "staj", "position", "pozisyon", "role", "görev",
+    
+    # Etkinlikler ve katılım
+    "etkinlik", "etkinliğe katılım", "katılım", "katıl", "katılımcı",
+    "zoom", "çevrim içi toplantı", "online toplantı", "online görüşme",
+    "toplantı kimliği", "parola", "katılım linki", "katılmak için tıkla",
+    "takvim", "calendar invite", "zoom link", "background image", "arka plan",
+    
+    # Doküman ve ekler
+    "el kitapçığı", "rehber", "bilgi dokümanı", "doküman", "ek dosya", "attachment"
+    ]
+
+    
+    # Reddedilecek keyword'ler
+    negative_keywords = [
+    "unsubscribe", "abonelikten çık", "opt-out", 
+    "promotion", "promosyon", "discount", "indirim", "kupon", "coupon", 
+    "product", "purchase", "satın al", "ürün", "store", "shop",
+    "marketing", "advertisement", "spam", "kampanya"
+    ]
+    
+    # Önce reddedilecek keyword'leri kontrol et
+    for keyword in negative_keywords:
+        if keyword in subject or keyword in body:
+            print(f"  Reddedildi (negatif keyword): {keyword}")
+            return None
+    
+    # Sonra pozitif keyword'leri kontrol et
+    found_keywords = []
+    for keyword in positive_keywords:
+        if keyword in subject or keyword in body:
+            found_keywords.append(keyword)
+    
+    if not found_keywords:
+        print(f"  Reddedildi (pozitif keyword bulunamadı)")
         return None
+    
+    print(f"  Kabul edildi (bulunan keyword'ler: {found_keywords})")
     
     # Şirket adını çıkar
     company_name = extract_company_name(sender, subject)
@@ -137,8 +222,13 @@ def manual_analysis(email: Dict) -> Dict:
     # Durumu belirle
     status = determine_status(subject, body)
     
+    # Application type belirle
+    application_type = "internship" if any(keyword in subject.lower() or keyword in body.lower() 
+                                          for keyword in ["internship", "staj", "stajyer"]) else "job"
+    
     return {
         "is_job_application": True,
+        "application_type": application_type,
         "company_name": company_name,
         "position": position,
         "application_status": status,
@@ -165,10 +255,12 @@ def extract_company_name(sender: str, subject: str) -> str:
 
 def extract_position(subject: str, body: str) -> str:
     """Konu ve içerikten pozisyon adını çıkar"""
-    # Pozisyon için yaygın keyword'ler
+    # Basit pozisyon keyword'leri
     position_keywords = [
         "developer", "engineer", "analyst", "manager", "designer", 
-        "specialist", "coordinator", "assistant", "consultant"
+        "specialist", "coordinator", "assistant", "consultant",
+        "geliştirici", "mühendis", "analist", "yönetici", "tasarımcı",
+        "uzman", "koordinatör", "asistan", "danışman"
     ]
     
     for keyword in position_keywords:
@@ -189,45 +281,18 @@ def determine_status(subject: str, body: str) -> str:
     subject_lower = subject.lower()
     body_lower = body.lower()
     
+    # Basit durum belirleme
     if any(word in subject_lower or word in body_lower for word in ["interview", "mülakat"]):
-        return "Mülakat Daveti"
-    elif any(word in subject_lower or word in body_lower for word in ["rejected", "red", "başarısız"]):
-        return "Red"
+        return "Interview Invitation"
+    elif any(word in subject_lower or word in body_lower for word in ["rejected", "red"]):
+        return "Rejected"
     elif any(word in subject_lower or word in body_lower for word in ["accepted", "kabul", "offer", "teklif"]):
-        return "Kabul"
-    elif any(word in subject_lower or word in body_lower for word in ["application", "başvuru", "apply"]):
-        return "Başvuruldu"
+        return "Accepted"
+    elif any(word in subject_lower or word in body_lower for word in ["technical test", "teknik test", "coding challenge", "kodlama testi"]):
+        return "Technical Test"
+    elif any(word in subject_lower or word in body_lower for word in ["application", "başvuru"]):
+        return "Applied"
     else:
-        return "Bilinmiyor"
+        return "Unknown"
 
-@router.post("/save-applications")
-async def save_applications(applications_data: Dict = Body(...)):
-    """Analiz edilen başvuruları kaydet"""
-    try:
-        applications = applications_data.get("applications", [])
-        
-        # Burada veritabanına kaydetme işlemi yapılacak
-        # Şimdilik sadece başarı mesajı döndürüyoruz
-        
-        return {
-            "message": f"{len(applications)} adet başvuru kaydedildi",
-            "saved_count": len(applications)
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Başvuru kaydetme hatası: {str(e)}")
-
-@router.get("/applications/{user_id}")
-async def get_user_applications(user_id: str):
-    """Kullanıcının kayıtlı başvurularını getir"""
-    try:
-        # Burada veritabanından kullanıcının başvurularını çekme işlemi yapılacak
-        # Şimdilik boş liste döndürüyoruz
-        
-        return {
-            "applications": [],
-            "message": "Başvurular getirildi"
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Başvuru getirme hatası: {str(e)}") 
+ 
