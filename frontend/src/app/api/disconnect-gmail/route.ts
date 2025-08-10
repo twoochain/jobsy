@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Backend'e Gmail bağlantısını kesme isteği gönder
-    const backendResponse = await fetch('http://localhost:8000/disconnect-gmail', {
+    const backendResponse = await fetch('http://localhost:8000/gmail/disconnect', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

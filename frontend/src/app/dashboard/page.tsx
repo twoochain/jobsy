@@ -192,6 +192,9 @@ export default function Dashboard() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailData, setEmailData] = useState<any>(null);
+  const [emailLoading, setEmailLoading] = useState(false);
   
   useEffect(() => {
     if (session?.user?.email) {
@@ -223,6 +226,34 @@ export default function Dashboard() {
     console.log('Applications state değişti:', applications);
     console.log('Applications state length:', applications.length);
   }, [applications]);
+
+  // Gmail OAuth popup mesajlarını dinle
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Sadece güvenli kaynaklardan gelen mesajları kabul et
+      if (event.origin !== window.location.origin) return;
+      
+      if (event.data.type === 'GMAIL_AUTH_SUCCESS') {
+        console.log('Gmail bağlantısı başarılı:', event.data);
+        setIsGmailConnected(true);
+        // Kullanıcıya başarı mesajı göster
+        alert('Gmail hesabınız başarıyla bağlandı!');
+        // Gmail durumunu kontrol et
+        checkGmailConnection();
+      } else if (event.data.type === 'GMAIL_AUTH_ERROR') {
+        console.error('Gmail bağlantı hatası:', event.data.error);
+        setIsGmailConnected(false);
+        // Kullanıcıya hata mesajı göster
+        alert('Gmail bağlantısı başarısız: ' + event.data.error);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, []);
 
   const loadApplications = async () => {
     if (!session?.user?.email) return;
@@ -276,11 +307,20 @@ export default function Dashboard() {
     try {
       const result: ApiResponse = await connectGmail(session.user.email);
       if (result.success && result.data?.authUrl) {
-        window.open(result.data.authUrl, '_blank');
-        setIsGmailConnected(true);
+        // Popup window kullan
+        const popup = window.open(
+          result.data.authUrl, 
+          'gmail_auth', 
+          'width=500,height=600,scrollbars=yes,resizable=yes'
+        );
+        
+        if (!popup) {
+          alert('Popup penceresi açılamadı. Lütfen popup engelleyicisini kapatın.');
+        }
       }
     } catch (error) {
       console.error('Gmail bağlantı hatası:', error);
+      alert('Gmail bağlantısı başlatılamadı: ' + (error instanceof Error ? error.message : 'Bilinmeyen hata'));
     } finally {
       setIsConnecting(false);
     }
@@ -330,6 +370,29 @@ export default function Dashboard() {
       alert('E-posta tarama hatası: ' + (error instanceof Error ? error.message : 'Bilinmeyen hata'));
     } finally {
       setScanningEmails(false);
+    }
+  };
+
+  const handleViewEmail = async (applicationId: number) => {
+    if (!session?.user?.email) return;
+    
+    setEmailLoading(true);
+    setEmailModalOpen(true);
+    
+    try {
+      const response = await fetch(`/api/applications/${session.user.email}/${applicationId}/email`);
+      if (!response.ok) {
+        throw new Error('Email içeriği getirilemedi');
+      }
+      
+      const data = await response.json();
+      setEmailData(data);
+    } catch (error) {
+      console.error('Email getirme hatası:', error);
+      alert('Email içeriği alınamadı: ' + (error instanceof Error ? error.message : 'Bilinmeyen hata'));
+      setEmailModalOpen(false);
+    } finally {
+      setEmailLoading(false);
     }
   };
 
@@ -830,6 +893,12 @@ export default function Dashboard() {
 
                     {/* Action Buttons */}
                     <div className="flex items-center space-x-2">
+                      <button 
+                        onClick={() => handleViewEmail(app.id)}
+                        className="flex-1 px-3 py-2 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors"
+                      >
+                        📧 Maili Gör
+                      </button>
                       <button className="flex-1 px-3 py-2 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors">
                         ✏️ Düzenle
                       </button>
@@ -1118,6 +1187,106 @@ export default function Dashboard() {
           )}
         </main>
       </div>
+
+      {/* Email Modal */}
+      {emailModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h3 className="text-lg font-bold text-gray-900">
+                📧 Email İçeriği
+              </h3>
+              <button
+                onClick={() => setEmailModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              {emailLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="ml-3 text-gray-600">Email yükleniyor...</span>
+                </div>
+              ) : emailData ? (
+                <div className="space-y-4">
+                  {/* Email Header */}
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-gray-700">Gönderen:</p>
+                        <p className="text-sm text-gray-900">{emailData.email_sender}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-700">Tarih:</p>
+                        <p className="text-sm text-gray-900">{emailData.email_date}</p>
+                      </div>
+                      <div className="md:col-span-2">
+                        <p className="text-sm font-medium text-gray-700">Konu:</p>
+                        <p className="text-sm text-gray-900 font-semibold">{emailData.email_subject}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Email Content */}
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 mb-2">İçerik:</p>
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      {emailData.html_body ? (
+                        <div className="space-y-4">
+                          {/* HTML Content */}
+                          <div>
+                            <p className="text-xs text-gray-500 mb-2">HTML Görünümü:</p>
+                            <div 
+                              className="text-sm text-gray-900 prose prose-sm max-w-none"
+                              dangerouslySetInnerHTML={{ __html: emailData.html_body }}
+                            />
+                          </div>
+                          <hr className="border-gray-200" />
+                          {/* Plain Text Content */}
+                          <div>
+                            <p className="text-xs text-gray-500 mb-2">Düz Metin:</p>
+                            <pre className="text-sm text-gray-900 whitespace-pre-wrap font-sans">
+                              {emailData.email_content || emailData.email_body || 'Email içeriği bulunamadı'}
+                            </pre>
+                          </div>
+                        </div>
+                      ) : (
+                        <pre className="text-sm text-gray-900 whitespace-pre-wrap font-sans">
+                          {emailData.email_content || emailData.email_body || 'Email içeriği bulunamadı'}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Application Info */}
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <p className="text-sm font-medium text-blue-700 mb-2">Başvuru Bilgileri:</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-xs text-blue-600">Şirket:</p>
+                        <p className="text-sm text-blue-900 font-medium">{emailData.company_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-blue-600">Pozisyon:</p>
+                        <p className="text-sm text-blue-900 font-medium">{emailData.position}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-600">Email içeriği bulunamadı</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

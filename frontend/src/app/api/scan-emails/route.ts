@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     console.log('E-posta tarama başlatılıyor...', userId);
 
     // Backend'e e-posta tarama isteği gönder
-    const scanResponse = await fetch('http://localhost:8000/scan-emails', {
+    const scanResponse = await fetch('http://localhost:8000/gmail/scan', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     if (scanData.emails && scanData.emails.length > 0) {
       console.log('Analiz edilecek e-posta sayısı:', scanData.emails.length);
       
-      const analyzeResponse = await fetch('http://localhost:8000/analyze-emails', {
+      const analyzeResponse = await fetch('http://localhost:8000/analyze/emails', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
           console.log('Kaydedilecek başvuru sayısı:', analyzeData.applications.length);
           console.log('Kaydedilecek başvurular:', analyzeData.applications);
           
-          const saveResponse = await fetch('http://localhost:8000/save-applications', {
+          const saveResponse = await fetch('http://localhost:8000/applications/save', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

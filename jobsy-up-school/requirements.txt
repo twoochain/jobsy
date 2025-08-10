@@ -1,8 +1,0 @@
-fastapi
-uvicorn
-python-dotenv
-requests
-python-multipart
-google-auth
-google-auth-oauthlib
-google-auth-httplib2 

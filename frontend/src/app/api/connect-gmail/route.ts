@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Backend'e Gmail bağlantı isteği gönder
-    const backendResponse = await fetch('http://localhost:8000/connect-gmail', {
+    const backendResponse = await fetch('http://localhost:8000/gmail/connect', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
