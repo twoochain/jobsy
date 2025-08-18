@@ -13,3 +13,12 @@ async def analyze_emails(request: EmailAnalysisRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/scan-emails")
+async def scan_emails(request: EmailAnalysisRequest):
+    """E-postaları tara ve analiz et (Frontend uyumluluğu için)"""
+    try:
+        result = await email_analyzer_service.analyze_emails(request.emails)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

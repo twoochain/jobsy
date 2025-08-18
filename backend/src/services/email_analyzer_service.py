@@ -8,8 +8,17 @@ import unicodedata
 from datetime import datetime
 from fastapi import HTTPException
 import httpx
-from ..config.settings import settings
 from bs4 import BeautifulSoup
+from ..config.settings import settings
+
+# Yeni gelişmiş sınıflandırıcıyı import et
+try:
+    from .advanced_email_classifier import advanced_email_classifier, EmailClassificationResult
+    from .enhanced_email_analyzer import enhanced_email_analyzer
+    ADVANCED_CLASSIFIER_AVAILABLE = True
+except ImportError as e:
+    ADVANCED_CLASSIFIER_AVAILABLE = False
+    print(f"Gelişmiş sınıflandırıcı bulunamadı, eski sistem kullanılıyor: {e}")
 
 class EmailAnalyzerService:
     """Gelişmiş e-posta analizi için servis sınıfı"""
@@ -21,7 +30,10 @@ class EmailAnalyzerService:
         )
         self.client = httpx.AsyncClient(timeout=15)
         
-        # Anahtar kelime listeleri
+        # Gelişmiş sınıflandırıcı kullanılabilir mi?
+        self.use_advanced_classifier = ADVANCED_CLASSIFIER_AVAILABLE
+        
+        # Anahtar kelime listeleri (fallback için)
         self.positive_keywords = [
             # İş başvurusu yanıtları (spesifik)
             "başvurunuz alındı", "application received", "your application",
@@ -87,6 +99,21 @@ class EmailAnalyzerService:
         if not emails:
             raise HTTPException(status_code=400, detail="Analiz edilecek e-posta yok")
 
+        # Gelişmiş sınıflandırıcı kullanılabilir mi?
+        if self.use_advanced_classifier:
+            try:
+                print("🚀 Gelişmiş BERT tabanlı sınıflandırıcı kullanılıyor...")
+                return await enhanced_email_analyzer.analyze_emails(emails)
+            except Exception as e:
+                print(f"Gelişmiş sınıflandırıcı hatası, eski sistem kullanılıyor: {e}")
+                self.use_advanced_classifier = False
+
+        # Fallback: Eski sistem
+        print("📧 Eski TF-IDF tabanlı sistem kullanılıyor...")
+        return await self._analyze_emails_legacy(emails)
+
+    async def _analyze_emails_legacy(self, emails: List[Dict]) -> Dict:
+        """Eski TF-IDF tabanlı analiz sistemi"""
         analyzed = []
         for email in emails:
             result = await self.analyze_single_email(email)
@@ -96,11 +123,69 @@ class EmailAnalyzerService:
         return {
             "applications": analyzed,
             "totalFound": len(analyzed),
-            "message": f"{len(analyzed)} adet başvuru e-postası bulundu"
+            "message": f"{len(analyzed)} adet başvuru e-postası bulundu (eski sistem)",
+            "system_used": "legacy_tfidf"
         }
 
     async def analyze_single_email(self, email: Dict) -> Optional[Dict]:
         """Tek bir e-postayı analiz et"""
+        subject = email.get("subject", "")
+        body = email.get("body", "")
+        sender = email.get("sender", "")
+
+        # Gelişmiş sınıflandırıcı kullanılabilir mi?
+        if self.use_advanced_classifier:
+            try:
+                result = advanced_email_classifier.classify_email(
+                    email_content=body,
+                    email_subject=subject,
+                    email_sender=sender
+                )
+                
+                # Sonucu eski format ile uyumlu hale getir
+                if result.category in ["etkinlik_daveti", "mulakat_daveti", "teknik_test", "basvuru_onayi"]:
+                    return self._convert_to_legacy_format(email, result)
+                    
+            except Exception as e:
+                print(f"Gelişmiş sınıflandırıcı hatası: {e}")
+
+        # Fallback: Eski sistem
+        return await self._analyze_single_email_legacy(email)
+
+    def _convert_to_legacy_format(self, email: Dict, result: EmailClassificationResult) -> Dict:
+        """Gelişmiş sonucu eski format ile uyumlu hale getir"""
+        return {
+            "is_application": True,
+            "email_id": email.get("id"),
+            "email_subject": email.get("subject"),
+            "email_sender": email.get("sender"),
+            "email_date": email.get("date"),
+            "email_content": email.get("body", ""),
+            "html_body": email.get("html_body", ""),
+            "analyzed_at": datetime.now().isoformat(),
+            "company_name": result.extracted_info.get("sirket", "Bilinmeyen"),
+            "position": result.extracted_info.get("pozisyon", "Belirlenemedi"),
+            "status": self._map_category_to_status(result.category),
+            "confidence": result.confidence,
+            "reasoning": result.reasoning,
+            "extracted_info": result.extracted_info,
+            "metadata": result.metadata
+        }
+
+    def _map_category_to_status(self, category: str) -> str:
+        """Kategoriyi başvuru durumuna eşle"""
+        status_mapping = {
+            "etkinlik_daveti": "Etkinlik Daveti",
+            "mulakat_daveti": "Mülakat Daveti",
+            "teknik_test": "Teknik Test",
+            "basvuru_onayi": "Başvuru Onayı",
+            "is_teklifi": "İş Teklifi",
+            "red_bildirimi": "Red Bildirimi"
+        }
+        return status_mapping.get(category, "Bilinmeyen")
+
+    async def _analyze_single_email_legacy(self, email: Dict) -> Optional[Dict]:
+        """Eski sistem ile tek e-posta analizi"""
         subject = email.get("subject", "")
         body = email.get("body", "")
         sender = email.get("sender", "")
@@ -260,7 +345,7 @@ class EmailAnalyzerService:
         # Gelişmiş pozisyon regex pattern'ları
         position_patterns = [
             # Senior/Junior/Lead pozisyonlar
-            r"\b(?:senior|junior|lead|principal)?\s*(?:software|backend|frontend|full.?stack|data|devops|mobile|web|ui|ux|qa|test|product|project|business|sales|marketing|hr|finance|legal|admin|support|customer|technical|system|network|security|cloud|ai|ml|machine.?learning|artificial.?intelligence|blockchain|game|embedded|firmware|hardware|robotics|automation|analytics|scientist|engineer|developer|architect|consultant|specialist|analyst|manager|director|coordinator|assistant|designer|researcher|instructor|trainer|writer|editor|translator|interpreter|accountant|auditor|lawyer|attorney|paralegal|nurse|doctor|physician|dentist|pharmacist|teacher|professor|lecturer|student|intern|trainee|apprentice|volunteer|freelancer|contractor|consultant|advisor|mentor|coach|counselor|therapist|psychologist|social.?worker|case.?worker|advocate|mediator|arbitrator|judge|magistrate|prosecutor|defense|attorney|public.?defender|district.?attorney|assistant.?district.?attorney|assistant.?attorney.?general|solicitor.?general|attorney.?general|chief.?justice|associate.?justice|justice|judge|magistrate|commissioner|referee|hearing.?officer|administrative.?law.?judge|tax.?court.?judge|bankruptcy.?judge|federal.?judge|state.?judge|county.?judge|municipal.?judge|justice.?of.?the.?peace|notary.?public|commissioner.?of.?oaths|justice.?of.?the.?peace|magistrate|judge|justice|commissioner|referee|hearing.?officer|administrative.?law.?judge|tax.?court.?judge|bankruptcy.?judge|federal.?judge|state.?judge|county.?judge|municipal.?judge|justice.?of.?the.?peace|notary.?public|commissioner.?of.?oaths)\b",
+            r"\b(?:senior|junior|lead|principal)?\s*(?:software|backend|frontend|full.?stack|data|devops|mobile|web|ui|ux|qa|test|product|project|business|sales|marketing|hr|finance|legal|admin|support|customer|technical|system|network|security|cloud|ai|ml|machine.?learning|artificial.?intelligence|blockchain|game|embedded|firmware|hardware|robotics|automation|analytics|scientist|engineer|developer|architect|consultant|specialist|analyst|manager|director|coordinator|assistant|designer|researcher|instructor|trainer|writer|editor|translator|interpreter|accountant|auditor|lawyer|attorney|paralegal|nurse|doctor|physician|dentist|pharmacist|teacher|professor|lecturer|student|intern|trainee|apprentice|volunteer|freelancer|contractor|consultant|advisor|mentor|coach|counselor|therapist|psychologist|social.?worker|case.?worker|advocate|mediator|arbitrator|judge|magistrate|prosecutor|defense|attorney|public.?defender|district.?attorney|assistant.?district.?attorney|assistant.?attorney.?general|solicitor.?general|attorney.?general|chief.?justice|associate.?justice|justice|judge|magistrate|commissioner|referee|hearing.?officer|administrative.?law.?judge|tax.?court.?judge|bankruptcy.?judge|federal.?judge|state.?judge|county.?judge|municipal.?judge|justice.?of.?the.?peace|notary.?public|commissioner.?of.?oaths|justice.?of.?the.?peace|magistrate|judge|justice|commissioner|referee|hearing.?officer|administrative.?law.?judge|tax.?court.?judge|bankruptcy.?judge|federal.?judge|eyalet|yargıcı|ilçe|yargıcı|belediye|yargıcı|barış|yargıcı|noter|halk|komiseri|barış|yargıcı|komiser|yargıç|yargıç|komiser|hakem|dinleme|memuru|idari|hukuk|yargıcı|vergi|mahkemesi|yargıcı|iflas|yargıcı|federal|yargıç|eyalet|yargıcı|ilçe|yargıcı|belediye|yargıcı|barış|yargıcı|noter|halk|komiseri)\b",
             
             # Türkçe pozisyonlar
             r"\b(?:kıdemli|yeni|baş|ana|uzman|kıdemli|deneyimli|yeni|başlangıç|orta|yüksek|düşük|genel|özel|teknik|idari|yönetici|müdür|şef|koordinatör|asistan|uzman|danışman|müşavir|temsilci|görevli|sorumlu|yetkili|memur|teknisyen|operatör|tekniker|mühendis|geliştirici|programcı|analist|tasarımcı|araştırmacı|eğitmen|öğretmen|hoca|akademisyen|profesör|doçent|yardımcı|öğretim|görevlisi|öğrenci|stajyer|çırak|gönüllü|serbest|çalışan|danışman|danışman|akıl|hocası|koç|danışman|terapist|psikolog|sosyal|çalışan|vaka|çalışan|savunucu|arabulucu|hakem|yargıç|savcı|savunma|avukat|kamu|savunucusu|savcı|yardımcısı|savcı|genel|müdürü|başsavcı|genel|müdürü|yardımcısı|genel|müdürü|başyargıç|yargıç|yargıç|yargıç|komiser|hakem|dinleme|memuru|idari|hukuk|yargıcı|vergi|mahkemesi|yargıcı|iflas|yargıcı|federal|yargıç|eyalet|yargıcı|ilçe|yargıcı|belediye|yargıcı|barış|yargıcı|noter|halk|komiseri|barış|yargıcı|komiser|yargıç|yargıç|komiser|hakem|dinleme|memuru|idari|hukuk|yargıcı|vergi|mahkemesi|yargıcı|iflas|yargıcı|federal|yargıç|eyalet|yargıcı|ilçe|yargıcı|belediye|yargıcı|barış|yargıcı|noter|halk|komiseri)\b",

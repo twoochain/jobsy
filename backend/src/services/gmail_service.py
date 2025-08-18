@@ -244,28 +244,22 @@ class GmailService:
         # Basit filtreleme stratejisi
         all_messages = []
         
-        # Ana sorgular - iş başvurusu ile ilgili e-postalar
+        # Ana sorgular - iş başvurusu ile ilgili e-postalar (daha spesifik)
         search_queries = [
-            # Başvuru yanıtları
-            "subject:(application received OR başvurunuz alındı OR başvurunuz iletildi OR application submitted OR başvurdunuz OR applied)",
+            # Başvuru yanıtları - çok spesifik
+            "subject:(application received OR başvurunuz alındı OR başvurunuz iletildi OR application submitted OR başvurdunuz OR applied OR başvurunuz ulaştı)",
             
-            # Mülakat davetleri
-            "subject:(interview invitation OR mülakat daveti OR görüşme daveti OR interview scheduled OR mülakat planlandı OR meeting invitation)",
+            # Mülakat davetleri - spesifik
+            "subject:(interview invitation OR mülakat daveti OR görüşme daveti OR interview scheduled OR mülakat planlandı OR meeting invitation OR görüşme planlandı)",
             
-            # Teknik test davetleri
-            "subject:(technical test OR teknik test OR coding challenge OR kodlama testi OR assessment invitation OR değerlendirme daveti)",
+            # Teknik test davetleri - spesifik
+            "subject:(technical test OR teknik test OR coding challenge OR kodlama testi OR assessment invitation OR değerlendirme daveti OR test daveti)",
             
-            # İş teklifi ve sonuçlar
-            "subject:(job offer OR iş teklifi OR offer letter OR teklif mektubu OR congratulations OR tebrikler OR unfortunately OR maalesef)",
+            # İş teklifi ve sonuçlar - spesifik
+            "subject:(job offer OR iş teklifi OR offer letter OR teklif mektubu OR congratulations OR tebrikler OR unfortunately OR maalesef OR red OR kabul)",
             
-            # Genel iş terimleri (spam hariç)
-            "subject:(interview OR mülakat OR test OR assessment OR değerlendirme OR job OR iş OR position OR pozisyon OR role OR rol) -subject:(unsubscribe OR promotion OR sale OR newsletter OR başvuru dönemi OR application period OR apply now OR new job opportunity OR we're hiring OR career opportunity)",
-            
-            # Etkinlik ve toplantı
-            "subject:(meeting OR toplantı OR zoom OR invitation OR davet OR calendar OR takvim OR event OR etkinlik)",
-            
-            # CV ve portföy
-            "subject:(cv OR resume OR özgeçmiş OR portfolio OR portföy OR document OR doküman)"
+            # Etkinlik davetleri - spesifik
+            "subject:(hackathon OR ideathon OR workshop OR webinar OR etkinlik daveti OR event invitation OR davet)"
         ]
         
         print(f"E-posta tarama başlatılıyor...")
