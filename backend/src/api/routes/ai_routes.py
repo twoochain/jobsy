@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, Query, HTTPException
+from fastapi import APIRouter, Body, Query
 from typing import Dict, Any
 from ...services.ai_service import ai_service
 
@@ -15,31 +15,77 @@ def ai_prompt_get():
     return {"message": "AI prompt endpoint - POST kullanın"}
 
 @router.post("/gemini-inference")
-def gemini_inference(prompt: str = Body(..., description="Prompt for Gemini API")):
+async def gemini_inference(prompt: str = Body(..., description="Prompt for Gemini API")):
     """Gemini API ile inference yapar"""
-    return ai_service.generate_ai_response(prompt)
+    return await ai_service.generate_ai_response(prompt)
 
 @router.post("/gemini-analyze")
-def gemini_analyze(text: str = Body(..., description="Analiz edilecek e-posta içeriği")):
+async def gemini_analyze(text: str = Body(..., description="Analiz edilecek e-posta içeriği")):
     """E-posta içeriğini Gemini ile analiz eder"""
-    return ai_service.analyze_text_with_gemini(text)
+    return await ai_service.analyze_text_with_gemini(text)
+
+@router.post("/analyze-job-posting")
+async def analyze_job_posting_with_gemini(job_data: Dict[str, Any] = Body(..., description="Analiz edilecek iş ilanı")):
+    """İş ilanını Gemini ile detaylı analiz eder"""
+    job_text = job_data.get("job_text", "")
+    if not job_text:
+        return {
+            "success": False,
+            "error": "İş ilanı metni gerekli",
+            "message": "Lütfen job_text alanını doldurun"
+        }
+    return await ai_service.analyze_job_posting_with_gemini(job_text)
+
+@router.post("/analyze-job-posting-mock")
+def analyze_job_posting_mock(job_data: Dict[str, Any] = Body(..., description="Analiz edilecek iş ilanı (Mock)")):
+    """İş ilanını mock olarak analiz eder (API key gerektirmez)"""
+    job_text = job_data.get("job_text", "")
+    if not job_text:
+        return {
+            "success": False,
+            "error": "İş ilanı metni gerekli",
+            "message": "Lütfen job_text alanını doldurun"
+        }
+    
+    # Mock analiz sonucu
+    return {
+        "success": True,
+        "data": {
+            "company_name": "Mock Şirket",
+            "position": "Mock Pozisyon",
+            "location": "Mock Lokasyon",
+            "salary_info": "Mock Maaş Bilgisi",
+            "requirements": "Mock Gereksinimler",
+            "benefits": "Mock Avantajlar",
+            "application_type": "job",
+            "contact_info": "mock@example.com",
+            "deadline": "2024-12-31",
+            "company_description": "Mock şirket açıklaması",
+            "description": "Mock iş pozisyonu detaylı açıklaması ve sorumlulukları",
+            "field": "Mock İş Alanı",
+            "duration": "Mock Süre",
+            "is_paid": True,
+            "application_status": "active"
+        },
+        "message": "İlan mock olarak analiz edildi (API key gerekmez)"
+    }
 
 @router.post("/summarize")
-def summarize_text(text: str = Body(..., description="Özetlenecek metin")):
+async def summarize_text(text: str = Body(..., description="Özetlenecek metin")):
     """Metni Hugging Face ile özetler"""
-    return ai_service.summarize_text_with_hf(text)
+    return await ai_service.summarize_text_with_hf(text)
 
 @router.get("/search-models")
-def search_models(query: str = Query(..., description="Model arama sorgusu"), limit: int = 10):
+async def search_models(query: str = Query(..., description="Model arama sorgusu"), limit: int = 10):
     """Hugging Face modellerini arar"""
-    return ai_service.search_hf_models(query, limit)
+    return await ai_service.search_hf_models(query, limit)
 
 @router.get("/model-details/{model_id}")
-def get_model_details(model_id: str):
+async def get_model_details(model_id: str):
     """Model detaylarını getirir"""
-    return ai_service.get_model_details(model_id)
+    return await ai_service.get_model_details(model_id)
 
 @router.post("/hf-inference")
-def hf_inference(model_id: str = Query(..., description="Model ID"), inputs: Dict[str, Any] = Body(...)):
+async def hf_inference(model_id: str = Query(..., description="Model ID"), inputs: Dict[str, Any] = Body(...)):
     """Hugging Face inference yapar"""
-    return ai_service.hf_inference(model_id, inputs)
+    return await ai_service.hf_inference(model_id, inputs)

@@ -14,6 +14,7 @@ export interface ApiResponse<T = any> {
   data?: T;
   error?: string;
   message?: string;
+  source?: string;
 }
 
 export interface BackendResponse<T = any> {
@@ -29,7 +30,9 @@ async function callBackend<T>(
   options: RequestInit = {}
 ): Promise<BackendResponse<T>> {
   try {
-    const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+    const url = `${BACKEND_URL}${endpoint}`;
+    
+    const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
@@ -37,14 +40,22 @@ async function callBackend<T>(
       ...options,
     });
 
-    const data = await response.json();
-    
+    // HTTP status kontrolü ekle
     if (!response.ok) {
-      throw new Error(data.detail || data.error || 'Backend request failed');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.error || 
+        errorData.message || 
+        `HTTP ${response.status}: ${response.statusText}`
+      );
     }
 
-    return { success: true, data };
+    const data = await response.json();
+    
+    // Backend response'u doğrudan döndür
+    return data;
   } catch (error) {
+    console.error('callBackend error:', error);
     return { 
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error' 
@@ -186,6 +197,179 @@ export async function getApplications(userId: string): Promise<ApiResponse> {
     error: result.error,
     message: result.message
   };
+}
+
+// Create Manual Application
+export async function createManualApplication(applicationData: {
+  userId: string;
+  company_name: string;
+  position: string;
+  application_status?: string;
+  application_type?: string;
+  contact_person?: string;
+  location?: string;
+  salary_info?: string;
+  requirements?: string;
+  deadline?: string;
+  next_action?: string;
+  email_content?: string;
+}): Promise<ApiResponse> {
+  try {
+    const result = await callBackend('/applications/create-manual', {
+      method: 'POST',
+      body: JSON.stringify(applicationData),
+    });
+    
+    // Backend'den gelen response'u ApiResponse formatına çevir
+    if (result && typeof result === 'object') {
+      return {
+        success: true, // Backend'den başarılı response geldi
+        data: result, // Backend'in tüm response'unu data field'ına koy
+        error: result.error,
+        message: result.message
+      };
+    }
+    
+    return {
+      success: false,
+      error: 'Invalid response format from backend'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+// Create Application with ChromaDB (Turkish fields)
+export async function createChromaApplication(applicationData: {
+  userId: string;
+  baslik: string;
+  sirket: string;
+  konum: string;
+  aciklama?: string;
+  gereksinimler?: string;
+  avantajlar?: string;
+  alan?: string;
+  sure?: string;
+  ucretli?: boolean;
+  durum?: string;
+  application_type?: string;
+  contact_person?: string;
+  salary_info?: string;
+  deadline?: string;
+  next_action?: string;
+  email_content?: string;
+}): Promise<ApiResponse> {
+  try {
+    // Extract userId and convert Turkish fields to English
+    const { userId, ...turkishData } = applicationData;
+    
+    // Map Turkish field names to English for backend schema
+    const englishData = {
+      is_job_application: true,
+      application_type: turkishData.application_type || 'job',
+      company_name: turkishData.sirket,
+      position: turkishData.baslik,
+      location: turkishData.konum,
+      application_status: turkishData.durum || 'Başvuruldu',
+      next_action: turkishData.next_action || 'Detaylı inceleme',
+      deadline: turkishData.deadline,
+      contact_person: turkishData.contact_person,
+      salary_info: turkishData.salary_info,
+      requirements: turkishData.gereksinimler
+    };
+
+    const result = await callBackend(`/chroma/applications?user_id=${encodeURIComponent(userId)}`, {
+      method: 'POST',
+      body: JSON.stringify(englishData),
+    });
+    
+    if (result && typeof result === 'object') {
+      return {
+        success: true,
+        data: result,
+        error: result.error,
+        message: result.message
+      };
+    }
+    
+    return {
+      success: false,
+      error: 'Invalid response format from backend'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+// Delete Application
+export async function deleteApplication(userId: string, applicationId: number): Promise<ApiResponse> {
+  try {
+    const result = await callBackend(`/applications/${userId}/${applicationId}`, {
+      method: 'DELETE',
+    });
+    
+    if (result && typeof result === 'object') {
+      return {
+        success: true,
+        data: result,
+        error: result.error,
+        message: result.message
+      };
+    }
+    
+    return {
+      success: false,
+      error: 'Invalid response format from backend'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+// Analyze Job Posting with AI
+export async function analyzeJobPosting(jobData: {
+  job_posting_url?: string;
+  job_posting_text?: string;
+}): Promise<ApiResponse> {
+  try {
+    // Gemini API ile analiz yap
+    const geminiResult = await callBackend('/ai/analyze-job-posting', {
+      method: 'POST',
+      body: JSON.stringify({
+        job_text: jobData.job_posting_text || jobData.job_posting_url || ''
+      }),
+    });
+    
+    // Gemini sonucunu ApiResponse formatına çevir
+    if (geminiResult && typeof geminiResult === 'object') {
+      return {
+        success: geminiResult.success || false,
+        data: geminiResult.data,
+        error: geminiResult.error,
+        message: geminiResult.message || 'İlan Gemini ile analiz edildi',
+        source: 'gemini_api'
+      };
+    }
+    
+    return {
+      success: false,
+      error: 'Invalid response format from backend'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
 }
 
 // ===== CONFIGURATION FUNCTIONS =====

@@ -1,5 +1,4 @@
 import requests
-from fastapi import HTTPException
 from typing import Dict, Any
 
 def make_api_request(url: str, method: str = "GET", headers: Dict = None, 
@@ -15,10 +14,7 @@ def make_api_request(url: str, method: str = "GET", headers: Dict = None,
         json_data: JSON verisi (POST istekleri için)
     
     Returns:
-        API yanıtı
-    
-    Raises:
-        HTTPException: İstek başarısız olduğunda
+        API yanıtı veya hata mesajı
     """
     try:
         if method.upper() == "GET":
@@ -26,14 +22,29 @@ def make_api_request(url: str, method: str = "GET", headers: Dict = None,
         elif method.upper() == "POST":
             response = requests.post(url, headers=headers, json=json_data)
         else:
-            raise ValueError(f"Desteklenmeyen HTTP metodu: {method}")
+            return {
+                "success": False,
+                "error": f"Desteklenmeyen HTTP metodu: {method}",
+                "message": "Sadece GET ve POST metodları desteklenir"
+            }
         
         response.raise_for_status()
         return response.json()
+        
     except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "success": False,
+            "error": f"API istek hatası: {str(e)}",
+            "message": "API'ye bağlanırken hata oluştu"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Beklenmeyen hata: {str(e)}",
+            "message": "İstek işlenirken beklenmeyen bir hata oluştu"
+        }
 
-def validate_required_fields(data: Dict[str, Any], required_fields: list) -> None:
+def validate_required_fields(data: Dict[str, Any], required_fields: list) -> Dict[str, Any]:
     """
     Gerekli alanların varlığını kontrol eder
     
@@ -41,12 +52,14 @@ def validate_required_fields(data: Dict[str, Any], required_fields: list) -> Non
         data: Kontrol edilecek veri
         required_fields: Gerekli alan listesi
     
-    Raises:
-        HTTPException: Gerekli alan eksikse
+    Returns:
+        Validation sonucu
     """
     missing_fields = [field for field in required_fields if field not in data or not data[field]]
     if missing_fields:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Eksik gerekli alanlar: {', '.join(missing_fields)}"
-        )
+        return {
+            "success": False,
+            "error": f"Eksik gerekli alanlar: {', '.join(missing_fields)}",
+            "message": "Lütfen tüm gerekli alanları doldurun"
+        }
+    return {"success": True}

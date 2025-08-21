@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from typing import List, Dict
 from ...services.email_analyzer_service import email_analyzer_service
 from ...models.schemas import EmailAnalysisRequest
@@ -12,7 +12,11 @@ async def analyze_emails(request: EmailAnalysisRequest):
         result = await email_analyzer_service.analyze_emails(request.emails)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "success": False,
+            "error": f"E-posta analiz hatası: {str(e)}",
+            "message": "E-postalar analiz edilirken hata oluştu"
+        }
 
 @router.post("/scan-emails")
 async def scan_emails(request: EmailAnalysisRequest):
@@ -21,4 +25,8 @@ async def scan_emails(request: EmailAnalysisRequest):
         result = await email_analyzer_service.analyze_emails(request.emails)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "success": False,
+            "error": f"E-posta tarama hatası: {str(e)}",
+            "message": "E-postalar taranırken hata oluştu"
+        }
